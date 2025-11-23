@@ -1,0 +1,149 @@
+import sys
+import time
+import os
+
+def check_dependencies():
+    """欢迎使用AI截图搜索"""
+    try:
+        import pytesseract
+    except ImportError:
+        print("pytesseract 未安装")
+        print("请运行: pip install pytesseract")
+        return False
+    
+    try:
+        from PIL import ImageGrab
+    except ImportError:
+        print("PIL/Pillow 未安装")
+        print("请运行: pip install pillow")
+        return False
+    
+    try:
+        import requests
+    except ImportError:
+        print("requests 未安装")
+        print("请运行: pip install requests")
+        return False
+    
+    # 检查Tesseract是否在PATH中
+    try:
+        import pytesseract
+        pytesseract.get_tesseract_version()
+    except Exception as e:
+        print("Tesseract OCR 未正确安装或配置")
+        print("错误信息:", e)
+        return False
+    
+    return True
+
+def get_clipboard_image():
+    """获取剪贴板中的图片，如果不存在则返回None"""
+    try:
+        from PIL import ImageGrab
+        image = ImageGrab.grabclipboard()
+        if image and hasattr(image, 'size'):
+            return image
+        return None
+    except Exception as e:
+        print(f"获取剪贴板图片时出错: {e}")
+        return None
+
+def main_program():
+    """主程序"""
+    import pytesseract
+    from PIL import ImageGrab
+    import requests
+    import json
+    
+    api_key = "111"#这个111是你的key，自己去购买然后配置，如果你已经确定了使用ds整篇代码只需要修改这一个地方就行
+    print(" 按 Ctrl+C 退出程序")#怎么退出可以自己改，在下面
+    print("=" * 60)
+    print("正在监控剪贴板...\n")
+    
+    # 初始化时记录当前的剪贴板状态，如果没有这个的话，程序每次打开就会识别一次剪切板
+    last_image = get_clipboard_image()
+    screenshot_count = 0
+    
+    try:
+        while True:
+            current_image = get_clipboard_image()
+            
+            # 只有当剪贴板中有新图片且与上次不同时才处理
+            if current_image and current_image != last_image:
+                screenshot_count += 1
+                last_image = current_image
+                print(f"\n检测到第 {screenshot_count} 个截图，正在处理...")
+                
+                # 保存临时文件
+                temp_file = f"temp_screenshot_{screenshot_count}.png"
+                current_image.save(temp_file, "PNG")
+                
+                try:
+                    text = pytesseract.image_to_string(temp_file, lang='chi_sim+eng').strip()
+                    print(f"识别到的文字: {text}")
+                    
+                    if text:
+                        # 调用AI
+                        print("正在调用AI分析...")
+                        headers = {
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json"
+                        }
+                        data = {
+                            "model": "deepseek-chat",
+                            "messages": [{
+                                "role": "user", 
+                                "content": f"{text} 只说答案"
+                            }]
+                        }
+                        
+                        response = requests.post(
+                            "https://api.deepseek.com/v1/chat/completions", #这边可以自由选择使用哪个AI接口，仅仅是以ds为例
+                            headers=headers, 
+                            json=data, 
+                            timeout=30
+                        )
+                        response.raise_for_status()
+                        
+                        result = response.json()
+                        answer = result["choices"][0]["message"]["content"]
+                        
+                        print("\n" )
+                        print("AI回复:")
+                        print(answer)
+                        print("=" * 60)
+                        print("\n继续监控剪贴板...")
+                    else:
+                        print("未识别到文字，请尝试更清晰的截图")
+                        
+                except Exception as e:
+                    print(f"处理截图时出错: {e}")
+                
+                # 清理临时文件，如果你想留日志就不清理
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
+            
+            time.sleep(2)  #这边可以自己调，如果需要非常小的延迟，就把这个数字调低，但是肯定会占用更多电脑资源
+            
+    except KeyboardInterrupt:
+        print(f"\n程序退出，共处理了 {screenshot_count} 个截图")
+    except Exception as e:
+        print(f"\n程序运行出错: {e}")
+
+if __name__ == "__main__":
+    print("正在检查依赖...")
+    
+    if check_dependencies():
+        print("\n依赖检查完成，启动主程序...")
+        try:
+            main_program()
+        except Exception as e:
+            print(f"程序运行出错: {e}")
+    else:
+        print("\n依赖检查失败，请先安装所需的库")
+    
+    # 程序结束时暂停
+    print("\n程序执行完毕")
+    input("按回车键退出...")
